@@ -1,13 +1,1213 @@
 {
-    "atomType": "Molecule",
-    "x": 0,
-    "y": 0,
-    "uniqueID": "id-1",
-    "name": "Huum_Hive_17",
-    "topLevel": true,
-    "allAtoms": [],
-    "allConnectors": [],
-    "unitsKey": "MM",
-    "fileTypeVersion": 1,
-    "filetypeVersion": 1
+  "atomType": "Molecule",
+  "x": 0,
+  "y": 0,
+  "uniqueID": "id-1",
+  "name": "Huum_Hive_17",
+  "topLevel": true,
+  "allAtoms": [
+    {
+      "atomType": "Molecule",
+      "x": 0.3,
+      "y": 0.2,
+      "uniqueID": "id-101",
+      "name": "Stone Cage",
+      "topLevel": false,
+      "allAtoms": [
+        {
+          "atomType": "Output",
+          "x": 1,
+          "y": 0.5,
+          "uniqueID": "id-103",
+          "ioValues": [
+            {
+              "name": "number or geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            }
+          ]
+        },
+        {
+          "atomType": "Code",
+          "x": 0.3,
+          "y": 0.5,
+          "uniqueID": "id-105",
+          "ioValues": [
+            {
+              "name": "color",
+              "ioValue": "#B9BDC2",
+              "currentEquation": "#B9BDC2"
+            },
+            {
+              "name": "maxDiameter",
+              "ioValue": 555
+            },
+            {
+              "name": "bulgeZ",
+              "ioValue": 400
+            },
+            {
+              "name": "bottomZ",
+              "ioValue": 60
+            },
+            {
+              "name": "topZ",
+              "ioValue": 750
+            },
+            {
+              "name": "bottomDiameter",
+              "ioValue": 490
+            },
+            {
+              "name": "topDiameter",
+              "ioValue": 390
+            },
+            {
+              "name": "ringCount",
+              "ioValue": 15
+            },
+            {
+              "name": "rodDiameter",
+              "ioValue": 8
+            },
+            {
+              "name": "fireboxHalfWidth",
+              "ioValue": 150
+            },
+            {
+              "name": "fireboxTop",
+              "ioValue": 460
+            },
+            {
+              "name": "strapWidth",
+              "ioValue": 25
+            },
+            {
+              "name": "strapThickness",
+              "ioValue": 4
+            },
+            {
+              "name": "frontPlateDepth",
+              "ioValue": 40
+            }
+          ],
+          "interpreterVersion": 1,
+          "code": "/**\n * HUUM HIVE Wood 17 stone cage: a welded basket of round-rod rings on an\n * egg-shaped profile, held by flat straps. Rings below the firebox top are\n * open at the front, ending on two front plates beside the firebox.\n * Z is up, the firebox faces -Y, and the cage is centred on the Z axis.\n * The members are kept as one compound rather than fused: fusing closed\n * rings leaves faces that fail to mesh.\n */\nfunction run(\n  maxDiameter: number = 555, // steel frame diameter (manual)\n  bulgeZ: number = 400, // height of the widest ring\n  bottomZ: number = 60, // gap under the cage (manual)\n  topZ: number = 750, // overall height (manual)\n  bottomDiameter: number = 490,\n  topDiameter: number = 390,\n  ringCount: number = 15,\n  rodDiameter: number = 8,\n  fireboxHalfWidth: number = 150, // firebox is 300 mm wide (manual G)\n  fireboxTop: number = 460, // top of firebox above floor (manual D)\n  strapWidth: number = 25,\n  strapThickness: number = 4,\n  frontPlateDepth: number = 40,\n  color: string = \"#B9BDC2\",\n): Assembly {\n  const Rm = maxDiameter / 2;\n  // Outer radius of the cage at height z: two half-ellipses meeting at bulgeZ\n  const aBelow = (bulgeZ - bottomZ) / Math.sqrt(1 - (bottomDiameter / 2 / Rm) ** 2);\n  const aAbove = (topZ - bulgeZ) / Math.sqrt(1 - (topDiameter / 2 / Rm) ** 2);\n  const R = (z: number) => {\n    const a = z < bulgeZ ? aBelow : aAbove;\n    const t = Math.min(1, Math.abs(z - bulgeZ) / a);\n    return Rm * Math.sqrt(1 - t * t);\n  };\n  const rod = rodDiameter / 2;\n  const halfOpen = fireboxHalfWidth + 10; // rings stop inside the front plates\n  const plateX = fireboxHalfWidth + 8; // inner face of each front plate\n\n  // Ring heights, evenly spaced from the bottom to the top of the cage\n  const ringZ: number[] = [];\n  for (let i = 0; i < ringCount; i++) {\n    ringZ.push(bottomZ + rod + (i * (topZ - bottomZ - rodDiameter)) / (ringCount - 1));\n  }\n  // Rings that would hit the firebox are open at the front; the plates run up to the first closed ring\n  const firstClosed = ringZ.findIndex((z) => z - rod > fireboxTop);\n  const plateTop = ringZ[firstClosed];\n  // Straps run between the bottom and top ring centrelines\n  const strapBottom = ringZ[0];\n\n  const members: any[] = [];\n\n  ringZ.forEach((z, i) => {\n    const rc = R(z) - rod;\n    let ring = replicad\n      .drawCircle(rod)\n      .translate(rc, z)\n      .sketchOnPlane(\"XZ\")\n      .revolve([0, 0, 1], { origin: [0, 0, 0] });\n    if (i < firstClosed) {\n      // makeBaseBox is centred in X and Y: this one spans |x| < halfOpen in front of the axis\n      const cutter = replicad\n        .makeBaseBox(2 * halfOpen, Rm + 50, rodDiameter + 2)\n        .translate(0, -(Rm + 50) / 2, z - rod - 1);\n      ring = ring.cut(cutter);\n    }\n    members.push(ring);\n  });\n\n  // Sampled heights for the strap outlines\n  const steps = 24;\n  const zs = (z0: number, z1: number) =>\n    Array.from({ length: steps + 1 }, (_, k) => z0 + ((z1 - z0) * k) / steps);\n\n  // Side and back straps: flat bars just inside the rings, welded to them\n  const ribZ = zs(strapBottom, ringZ[ringCount - 1]);\n  let rib = replicad.draw([R(ribZ[0]) - rod, ribZ[0]]);\n  ribZ.slice(1).forEach((z) => (rib = rib.lineTo([R(z) - rod, z])));\n  [...ribZ].reverse().forEach((z) => (rib = rib.lineTo([R(z) - rod - strapWidth, z])));\n  const ribSolid = rib\n    .close()\n    .sketchOnPlane(\"XZ\")\n    .extrude(strapThickness)\n    .translate(0, strapThickness / 2, 0);\n  [0, 90, 180].forEach((deg) => members.push(ribSolid.clone().rotate(deg, [0, 0, 0], [0, 0, 1])));\n\n  // Front plates beside the firebox, outer edge flush with the rings\n  const plateOuterX = plateX + strapThickness;\n  const pz = zs(strapBottom, plateTop);\n  const yo = (z: number) => -Math.sqrt(R(z) ** 2 - plateOuterX ** 2);\n  let plate = replicad.draw([yo(pz[0]), pz[0]]);\n  pz.slice(1).forEach((z) => (plate = plate.lineTo([yo(z), z])));\n  [...pz].reverse().forEach((z) => (plate = plate.lineTo([yo(z) + frontPlateDepth, z])));\n  const plateSolid = plate.close().sketchOnPlane(\"YZ\").extrude(strapThickness);\n  members.push(plateSolid.clone().translate(plateX, 0, 0));\n  members.push(plateSolid.translate(-plateX - strapThickness, 0, 0));\n\n  return new Assembly({\n    geometry: replicad.makeCompound(members),\n    color,\n    tags: [\"stainless steel\", \"stone cage\"],\n  });\n}\n",
+          "compiledCode": "\"use strict\";\n/**\n * HUUM HIVE Wood 17 stone cage: a welded basket of round-rod rings on an\n * egg-shaped profile, held by flat straps. Rings below the firebox top are\n * open at the front, ending on two front plates beside the firebox.\n * Z is up, the firebox faces -Y, and the cage is centred on the Z axis.\n * The members are kept as one compound rather than fused: fusing closed\n * rings leaves faces that fail to mesh.\n */\nfunction run(maxDiameter = 555, // steel frame diameter (manual)\nbulgeZ = 400, // height of the widest ring\nbottomZ = 60, // gap under the cage (manual)\ntopZ = 750, // overall height (manual)\nbottomDiameter = 490, topDiameter = 390, ringCount = 15, rodDiameter = 8, fireboxHalfWidth = 150, // firebox is 300 mm wide (manual G)\nfireboxTop = 460, // top of firebox above floor (manual D)\nstrapWidth = 25, strapThickness = 4, frontPlateDepth = 40, color = \"#B9BDC2\") {\n    const Rm = maxDiameter / 2;\n    // Outer radius of the cage at height z: two half-ellipses meeting at bulgeZ\n    const aBelow = (bulgeZ - bottomZ) / Math.sqrt(1 - (bottomDiameter / 2 / Rm) ** 2);\n    const aAbove = (topZ - bulgeZ) / Math.sqrt(1 - (topDiameter / 2 / Rm) ** 2);\n    const R = (z) => {\n        const a = z < bulgeZ ? aBelow : aAbove;\n        const t = Math.min(1, Math.abs(z - bulgeZ) / a);\n        return Rm * Math.sqrt(1 - t * t);\n    };\n    const rod = rodDiameter / 2;\n    const halfOpen = fireboxHalfWidth + 10; // rings stop inside the front plates\n    const plateX = fireboxHalfWidth + 8; // inner face of each front plate\n    // Ring heights, evenly spaced from the bottom to the top of the cage\n    const ringZ = [];\n    for (let i = 0; i < ringCount; i++) {\n        ringZ.push(bottomZ + rod + (i * (topZ - bottomZ - rodDiameter)) / (ringCount - 1));\n    }\n    // Rings that would hit the firebox are open at the front; the plates run up to the first closed ring\n    const firstClosed = ringZ.findIndex((z) => z - rod > fireboxTop);\n    const plateTop = ringZ[firstClosed];\n    // Straps run between the bottom and top ring centrelines\n    const strapBottom = ringZ[0];\n    const members = [];\n    ringZ.forEach((z, i) => {\n        const rc = R(z) - rod;\n        let ring = replicad\n            .drawCircle(rod)\n            .translate(rc, z)\n            .sketchOnPlane(\"XZ\")\n            .revolve([0, 0, 1], { origin: [0, 0, 0] });\n        if (i < firstClosed) {\n            // makeBaseBox is centred in X and Y: this one spans |x| < halfOpen in front of the axis\n            const cutter = replicad\n                .makeBaseBox(2 * halfOpen, Rm + 50, rodDiameter + 2)\n                .translate(0, -(Rm + 50) / 2, z - rod - 1);\n            ring = ring.cut(cutter);\n        }\n        members.push(ring);\n    });\n    // Sampled heights for the strap outlines\n    const steps = 24;\n    const zs = (z0, z1) => Array.from({ length: steps + 1 }, (_, k) => z0 + ((z1 - z0) * k) / steps);\n    // Side and back straps: flat bars just inside the rings, welded to them\n    const ribZ = zs(strapBottom, ringZ[ringCount - 1]);\n    let rib = replicad.draw([R(ribZ[0]) - rod, ribZ[0]]);\n    ribZ.slice(1).forEach((z) => (rib = rib.lineTo([R(z) - rod, z])));\n    [...ribZ].reverse().forEach((z) => (rib = rib.lineTo([R(z) - rod - strapWidth, z])));\n    const ribSolid = rib\n        .close()\n        .sketchOnPlane(\"XZ\")\n        .extrude(strapThickness)\n        .translate(0, strapThickness / 2, 0);\n    [0, 90, 180].forEach((deg) => members.push(ribSolid.clone().rotate(deg, [0, 0, 0], [0, 0, 1])));\n    // Front plates beside the firebox, outer edge flush with the rings\n    const plateOuterX = plateX + strapThickness;\n    const pz = zs(strapBottom, plateTop);\n    const yo = (z) => -Math.sqrt(R(z) ** 2 - plateOuterX ** 2);\n    let plate = replicad.draw([yo(pz[0]), pz[0]]);\n    pz.slice(1).forEach((z) => (plate = plate.lineTo([yo(z), z])));\n    [...pz].reverse().forEach((z) => (plate = plate.lineTo([yo(z) + frontPlateDepth, z])));\n    const plateSolid = plate.close().sketchOnPlane(\"YZ\").extrude(strapThickness);\n    members.push(plateSolid.clone().translate(plateX, 0, 0));\n    members.push(plateSolid.translate(-plateX - strapThickness, 0, 0));\n    return new Assembly({\n        geometry: replicad.makeCompound(members),\n        color,\n        tags: [\"stainless steel\", \"stone cage\"],\n    });\n}\n"
+        }
+      ],
+      "allConnectors": [
+        {
+          "ap2Name": "number or geometry",
+          "ap1ID": "id-105",
+          "ap2ID": "id-103"
+        }
+      ],
+      "fileTypeVersion": 1
+    },
+    {
+      "atomType": "Molecule",
+      "x": 0.3,
+      "y": 0.4,
+      "uniqueID": "id-136",
+      "name": "Firebox Body",
+      "topLevel": false,
+      "allAtoms": [
+        {
+          "atomType": "Output",
+          "x": 1,
+          "y": 0.5,
+          "uniqueID": "id-138",
+          "ioValues": [
+            {
+              "name": "number or geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            }
+          ]
+        },
+        {
+          "atomType": "Code",
+          "x": 0.3,
+          "y": 0.5,
+          "uniqueID": "id-140",
+          "ioValues": [
+            {
+              "name": "width",
+              "ioValue": 300
+            },
+            {
+              "name": "depth",
+              "ioValue": 485
+            },
+            {
+              "name": "color",
+              "ioValue": "#2E2F31",
+              "currentEquation": "#2E2F31"
+            },
+            {
+              "name": "frontY",
+              "ioValue": -312.5
+            },
+            {
+              "name": "bottomZ",
+              "ioValue": 30
+            },
+            {
+              "name": "topZ",
+              "ioValue": 460
+            },
+            {
+              "name": "wall",
+              "ioValue": 5
+            },
+            {
+              "name": "doorOpeningWidth",
+              "ioValue": 230
+            },
+            {
+              "name": "doorOpeningBottom",
+              "ioValue": 125
+            },
+            {
+              "name": "doorOpeningTop",
+              "ioValue": 415
+            },
+            {
+              "name": "drawerOpeningWidth",
+              "ioValue": 250
+            },
+            {
+              "name": "drawerOpeningTop",
+              "ioValue": 95
+            },
+            {
+              "name": "flueDiameter",
+              "ioValue": 115
+            }
+          ],
+          "interpreterVersion": 1,
+          "code": "/**\n * HUUM HIVE Wood 17 firebox: a welded 5 mm steel box that sits inside the\n * stone cage and sticks out 35 mm past it at the front (manual E).\n * The front has the door opening above the ash drawer opening; the top has\n * the hole the flue collar stands over. Z is up, the front faces -Y.\n */\nfunction run(\n  width: number = 300, // manual G\n  frontY: number = -312.5, // cage radius 277.5 + 35 mm projection\n  depth: number = 540,\n  bottomZ: number = 30, // on top of the base runners\n  topZ: number = 460, // manual D\n  wall: number = 5, // manual: furnace walls 5 mm\n  doorOpeningWidth: number = 230,\n  doorOpeningBottom: number = 125,\n  doorOpeningTop: number = 415,\n  drawerOpeningWidth: number = 250,\n  drawerOpeningTop: number = 95,\n  flueDiameter: number = 115,\n  color: string = \"#2E2F31\",\n): Assembly {\n  // Box from its extents (makeBaseBox is centred in X and Y, base at z = 0)\n  const box = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number) =>\n    replicad.makeBaseBox(x1 - x0, y1 - y0, z1 - z0).translate((x0 + x1) / 2, (y0 + y1) / 2, z0);\n  const hw = width / 2;\n  const backY = frontY + depth;\n  let body = box(-hw, hw, frontY, backY, bottomZ, topZ).cut(\n    box(-hw + wall, hw - wall, frontY + wall, backY - wall, bottomZ + wall, topZ - wall),\n  );\n\n  // Openings through the front wall\n  const frontCut = (w: number, z0: number, z1: number) =>\n    box(-w / 2, w / 2, frontY - 1, frontY + wall + 1, z0, z1);\n  body = body.cut(frontCut(doorOpeningWidth, doorOpeningBottom, doorOpeningTop));\n  body = body.cut(frontCut(drawerOpeningWidth, bottomZ + wall, drawerOpeningTop));\n\n  // Smoke outlet in the top, centred on the cage axis, matching the collar's bore\n  const flue = replicad\n    .makeCylinder(flueDiameter / 2 - 3, wall + 2)\n    .translate(0, 0, topZ - wall - 1);\n  body = body.cut(flue);\n\n  return new Assembly({ geometry: body, color, tags: [\"steel\", \"firebox\"] });\n}\n",
+          "compiledCode": "\"use strict\";\n/**\n * HUUM HIVE Wood 17 firebox: a welded 5 mm steel box that sits inside the\n * stone cage and sticks out 35 mm past it at the front (manual E).\n * The front has the door opening above the ash drawer opening; the top has\n * the hole the flue collar stands over. Z is up, the front faces -Y.\n */\nfunction run(width = 300, // manual G\nfrontY = -312.5, // cage radius 277.5 + 35 mm projection\ndepth = 540, bottomZ = 30, // on top of the base runners\ntopZ = 460, // manual D\nwall = 5, // manual: furnace walls 5 mm\ndoorOpeningWidth = 230, doorOpeningBottom = 125, doorOpeningTop = 415, drawerOpeningWidth = 250, drawerOpeningTop = 95, flueDiameter = 115, color = \"#2E2F31\") {\n    // Box from its extents (makeBaseBox is centred in X and Y, base at z = 0)\n    const box = (x0, x1, y0, y1, z0, z1) => replicad.makeBaseBox(x1 - x0, y1 - y0, z1 - z0).translate((x0 + x1) / 2, (y0 + y1) / 2, z0);\n    const hw = width / 2;\n    const backY = frontY + depth;\n    let body = box(-hw, hw, frontY, backY, bottomZ, topZ).cut(box(-hw + wall, hw - wall, frontY + wall, backY - wall, bottomZ + wall, topZ - wall));\n    // Openings through the front wall\n    const frontCut = (w, z0, z1) => box(-w / 2, w / 2, frontY - 1, frontY + wall + 1, z0, z1);\n    body = body.cut(frontCut(doorOpeningWidth, doorOpeningBottom, doorOpeningTop));\n    body = body.cut(frontCut(drawerOpeningWidth, bottomZ + wall, drawerOpeningTop));\n    // Smoke outlet in the top, centred on the cage axis, matching the collar's bore\n    const flue = replicad\n        .makeCylinder(flueDiameter / 2 - 3, wall + 2)\n        .translate(0, 0, topZ - wall - 1);\n    body = body.cut(flue);\n    return new Assembly({ geometry: body, color, tags: [\"steel\", \"firebox\"] });\n}\n"
+        }
+      ],
+      "allConnectors": [
+        {
+          "ap2Name": "number or geometry",
+          "ap1ID": "id-140",
+          "ap2ID": "id-138"
+        }
+      ],
+      "fileTypeVersion": 1
+    },
+    {
+      "atomType": "Molecule",
+      "x": 0.3,
+      "y": 0.5,
+      "uniqueID": "id-159",
+      "name": "Flue Collar",
+      "topLevel": false,
+      "allAtoms": [
+        {
+          "atomType": "Output",
+          "x": 1,
+          "y": 0.5,
+          "uniqueID": "id-161",
+          "ioValues": [
+            {
+              "name": "number or geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            }
+          ]
+        },
+        {
+          "atomType": "Circle",
+          "x": 0.2,
+          "y": 0.3,
+          "uniqueID": "id-163",
+          "ioValues": [
+            {
+              "name": "diameter",
+              "ioValue": 115
+            }
+          ]
+        },
+        {
+          "atomType": "Circle",
+          "x": 0.2,
+          "y": 0.6,
+          "uniqueID": "id-166",
+          "ioValues": [
+            {
+              "name": "diameter",
+              "ioValue": 109
+            }
+          ]
+        },
+        {
+          "atomType": "Difference",
+          "x": 0.4,
+          "y": 0.5,
+          "uniqueID": "id-169",
+          "ioValues": [
+            {
+              "name": "retain",
+              "ioValue": "__GEOMETRY_INPUT__"
+            },
+            {
+              "name": "remove",
+              "ioValue": "__GEOMETRY_INPUT__"
+            }
+          ]
+        },
+        {
+          "atomType": "Extrude",
+          "x": 0.6,
+          "y": 0.5,
+          "uniqueID": "id-173",
+          "ioValues": [
+            {
+              "name": "geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            },
+            {
+              "name": "height",
+              "ioValue": 290
+            }
+          ]
+        },
+        {
+          "atomType": "Move",
+          "x": 0.7,
+          "y": 0.5,
+          "uniqueID": "id-177",
+          "ioValues": [
+            {
+              "name": "geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            },
+            {
+              "name": "xDist",
+              "ioValue": 0
+            },
+            {
+              "name": "yDist",
+              "ioValue": 0
+            },
+            {
+              "name": "zDist",
+              "ioValue": 460
+            }
+          ]
+        },
+        {
+          "atomType": "Color",
+          "x": 0.9,
+          "y": 0.5,
+          "uniqueID": "id-183",
+          "ioValues": [
+            {
+              "name": "geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            }
+          ],
+          "selectedColor": "Grey"
+        }
+      ],
+      "allConnectors": [
+        {
+          "ap2Name": "retain",
+          "ap1ID": "id-163",
+          "ap2ID": "id-169"
+        },
+        {
+          "ap2Name": "remove",
+          "ap1ID": "id-166",
+          "ap2ID": "id-169"
+        },
+        {
+          "ap2Name": "geometry",
+          "ap1ID": "id-169",
+          "ap2ID": "id-173"
+        },
+        {
+          "ap2Name": "geometry",
+          "ap1ID": "id-173",
+          "ap2ID": "id-177"
+        },
+        {
+          "ap2Name": "geometry",
+          "ap1ID": "id-177",
+          "ap2ID": "id-183"
+        },
+        {
+          "ap2Name": "number or geometry",
+          "ap1ID": "id-183",
+          "ap2ID": "id-161"
+        }
+      ],
+      "fileTypeVersion": 1
+    },
+    {
+      "atomType": "Molecule",
+      "x": 0.3,
+      "y": 0.7,
+      "uniqueID": "id-186",
+      "name": "Base Runner",
+      "topLevel": false,
+      "allAtoms": [
+        {
+          "atomType": "Output",
+          "x": 1,
+          "y": 0.5,
+          "uniqueID": "id-188",
+          "ioValues": [
+            {
+              "name": "number or geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            }
+          ]
+        },
+        {
+          "atomType": "Rectangle",
+          "x": 0.2,
+          "y": 0.5,
+          "uniqueID": "id-190",
+          "ioValues": [
+            {
+              "name": "x length",
+              "ioValue": 8
+            },
+            {
+              "name": "y length",
+              "ioValue": 470
+            }
+          ]
+        },
+        {
+          "atomType": "Extrude",
+          "x": 0.4,
+          "y": 0.5,
+          "uniqueID": "id-194",
+          "ioValues": [
+            {
+              "name": "geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            },
+            {
+              "name": "height",
+              "ioValue": 30
+            }
+          ]
+        },
+        {
+          "atomType": "Move",
+          "x": 0.6,
+          "y": 0.5,
+          "uniqueID": "id-198",
+          "ioValues": [
+            {
+              "name": "geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            },
+            {
+              "name": "xDist",
+              "ioValue": 130
+            },
+            {
+              "name": "yDist",
+              "ioValue": -62.5
+            },
+            {
+              "name": "zDist",
+              "ioValue": 0
+            }
+          ]
+        },
+        {
+          "atomType": "Color",
+          "x": 0.8,
+          "y": 0.5,
+          "uniqueID": "id-204",
+          "ioValues": [
+            {
+              "name": "geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            }
+          ],
+          "selectedColor": "Black"
+        }
+      ],
+      "allConnectors": [
+        {
+          "ap2Name": "geometry",
+          "ap1ID": "id-190",
+          "ap2ID": "id-194"
+        },
+        {
+          "ap2Name": "geometry",
+          "ap1ID": "id-194",
+          "ap2ID": "id-198"
+        },
+        {
+          "ap2Name": "geometry",
+          "ap1ID": "id-198",
+          "ap2ID": "id-204"
+        },
+        {
+          "ap2Name": "number or geometry",
+          "ap1ID": "id-204",
+          "ap2ID": "id-188"
+        }
+      ],
+      "fileTypeVersion": 1
+    },
+    {
+      "atomType": "Output",
+      "x": 1,
+      "y": 0.5,
+      "uniqueID": "id-2",
+      "ioValues": [
+        {
+          "name": "number or geometry",
+          "ioValue": "__GEOMETRY_INPUT__"
+        }
+      ]
+    },
+    {
+      "atomType": "Molecule",
+      "x": 0.3,
+      "y": 0.8,
+      "uniqueID": "id-207",
+      "name": "Ash Drawer",
+      "topLevel": false,
+      "allAtoms": [
+        {
+          "atomType": "Output",
+          "x": 1,
+          "y": 0.5,
+          "uniqueID": "id-209",
+          "ioValues": [
+            {
+              "name": "number or geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            }
+          ]
+        },
+        {
+          "atomType": "Code",
+          "x": 0.3,
+          "y": 0.5,
+          "uniqueID": "id-211",
+          "ioValues": [
+            {
+              "name": "color",
+              "ioValue": "#3A3B3D",
+              "currentEquation": "#3A3B3D"
+            },
+            {
+              "name": "fireboxFrontY",
+              "ioValue": -312.5
+            },
+            {
+              "name": "trayWidth",
+              "ioValue": 245
+            },
+            {
+              "name": "trayDepth",
+              "ioValue": 460
+            },
+            {
+              "name": "trayBottom",
+              "ioValue": 35
+            },
+            {
+              "name": "trayHeight",
+              "ioValue": 55
+            },
+            {
+              "name": "sheet",
+              "ioValue": 2
+            },
+            {
+              "name": "frontWidth",
+              "ioValue": 270
+            },
+            {
+              "name": "frontBottom",
+              "ioValue": 35
+            },
+            {
+              "name": "frontTop",
+              "ioValue": 100
+            },
+            {
+              "name": "frontThickness",
+              "ioValue": 15
+            },
+            {
+              "name": "handleLength",
+              "ioValue": 120
+            },
+            {
+              "name": "handleStandoff",
+              "ioValue": 15
+            }
+          ],
+          "interpreterVersion": 1,
+          "code": "/**\n * HUUM HIVE Wood 17 ash drawer: an open steel tray that slides into the\n * bottom of the firebox, a front plate that closes the drawer opening, and a\n * U-shaped pull. Its position also sets the air supply. Z up, front faces -Y.\n */\nfunction run(\n  fireboxFrontY: number = -312.5,\n  trayWidth: number = 245,\n  trayDepth: number = 460,\n  trayBottom: number = 35, // on the firebox floor\n  trayHeight: number = 55,\n  sheet: number = 2,\n  frontWidth: number = 270,\n  frontBottom: number = 35,\n  frontTop: number = 100,\n  frontThickness: number = 15,\n  handleLength: number = 120,\n  handleStandoff: number = 15,\n  color: string = \"#3A3B3D\",\n): Assembly {\n  // Box from its extents (makeBaseBox is centred in X and Y, base at z = 0)\n  const box = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number) =>\n    replicad.makeBaseBox(x1 - x0, y1 - y0, z1 - z0).translate((x0 + x1) / 2, (y0 + y1) / 2, z0);\n\n  // Open-topped tray behind the front plate\n  const tw = trayWidth / 2;\n  const trayBack = fireboxFrontY + trayDepth;\n  const tray = box(-tw, tw, fireboxFrontY, trayBack, trayBottom, trayBottom + trayHeight).cut(\n    box(-tw + sheet, tw - sheet, fireboxFrontY + sheet, trayBack - sheet, trayBottom + sheet, trayBottom + trayHeight + 1),\n  );\n\n  // Front plate in front of the firebox face\n  const frontY = fireboxFrontY - frontThickness;\n  const front = box(-frontWidth / 2, frontWidth / 2, frontY, fireboxFrontY, frontBottom, frontTop);\n\n  // U-shaped pull: grip bar on two short legs\n  const midZ = (frontBottom + frontTop) / 2;\n  const bar = 10;\n  const gripY = frontY - handleStandoff;\n  const grip = box(-handleLength / 2, handleLength / 2, gripY, gripY + 5, midZ - bar / 2, midZ + bar / 2);\n  const legX = handleLength / 2 - bar / 2;\n  const leg = (x: number) => box(x - bar / 2, x + bar / 2, gripY + 5, frontY, midZ - bar / 2, midZ + bar / 2);\n\n  const drawer = tray.fuse(front).fuse(grip).fuse(leg(-legX)).fuse(leg(legX));\n  return new Assembly({ geometry: drawer, color, tags: [\"steel\", \"ash drawer\"] });\n}\n",
+          "compiledCode": "\"use strict\";\n/**\n * HUUM HIVE Wood 17 ash drawer: an open steel tray that slides into the\n * bottom of the firebox, a front plate that closes the drawer opening, and a\n * U-shaped pull. Its position also sets the air supply. Z up, front faces -Y.\n */\nfunction run(fireboxFrontY = -312.5, trayWidth = 245, trayDepth = 460, trayBottom = 35, // on the firebox floor\ntrayHeight = 55, sheet = 2, frontWidth = 270, frontBottom = 35, frontTop = 100, frontThickness = 15, handleLength = 120, handleStandoff = 15, color = \"#3A3B3D\") {\n    // Box from its extents (makeBaseBox is centred in X and Y, base at z = 0)\n    const box = (x0, x1, y0, y1, z0, z1) => replicad.makeBaseBox(x1 - x0, y1 - y0, z1 - z0).translate((x0 + x1) / 2, (y0 + y1) / 2, z0);\n    // Open-topped tray behind the front plate\n    const tw = trayWidth / 2;\n    const trayBack = fireboxFrontY + trayDepth;\n    const tray = box(-tw, tw, fireboxFrontY, trayBack, trayBottom, trayBottom + trayHeight).cut(box(-tw + sheet, tw - sheet, fireboxFrontY + sheet, trayBack - sheet, trayBottom + sheet, trayBottom + trayHeight + 1));\n    // Front plate in front of the firebox face\n    const frontY = fireboxFrontY - frontThickness;\n    const front = box(-frontWidth / 2, frontWidth / 2, frontY, fireboxFrontY, frontBottom, frontTop);\n    // U-shaped pull: grip bar on two short legs\n    const midZ = (frontBottom + frontTop) / 2;\n    const bar = 10;\n    const gripY = frontY - handleStandoff;\n    const grip = box(-handleLength / 2, handleLength / 2, gripY, gripY + 5, midZ - bar / 2, midZ + bar / 2);\n    const legX = handleLength / 2 - bar / 2;\n    const leg = (x) => box(x - bar / 2, x + bar / 2, gripY + 5, frontY, midZ - bar / 2, midZ + bar / 2);\n    const drawer = tray.fuse(front).fuse(grip).fuse(leg(-legX)).fuse(leg(legX));\n    return new Assembly({ geometry: drawer, color, tags: [\"steel\", \"ash drawer\"] });\n}\n"
+        }
+      ],
+      "allConnectors": [
+        {
+          "ap2Name": "number or geometry",
+          "ap1ID": "id-211",
+          "ap2ID": "id-209"
+        }
+      ],
+      "fileTypeVersion": 1
+    },
+    {
+      "atomType": "Molecule",
+      "x": 0.3,
+      "y": 0.9,
+      "uniqueID": "id-232",
+      "name": "Door Assembly",
+      "topLevel": false,
+      "allAtoms": [
+        {
+          "atomType": "Output",
+          "x": 1,
+          "y": 0.5,
+          "uniqueID": "id-234",
+          "ioValues": [
+            {
+              "name": "number or geometry",
+              "ioValue": "__GEOMETRY_INPUT__"
+            }
+          ]
+        },
+        {
+          "atomType": "Molecule",
+          "x": 0.3,
+          "y": 0.2,
+          "uniqueID": "id-236",
+          "name": "Door",
+          "topLevel": false,
+          "allAtoms": [
+            {
+              "atomType": "Output",
+              "x": 1,
+              "y": 0.5,
+              "uniqueID": "id-238",
+              "ioValues": [
+                {
+                  "name": "number or geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                }
+              ]
+            },
+            {
+              "atomType": "Code",
+              "x": 0.3,
+              "y": 0.5,
+              "uniqueID": "id-240",
+              "ioValues": [
+                {
+                  "name": "width",
+                  "ioValue": 270
+                },
+                {
+                  "name": "thickness",
+                  "ioValue": 15
+                },
+                {
+                  "name": "color",
+                  "ioValue": "#4A4C4F",
+                  "currentEquation": "#4A4C4F"
+                },
+                {
+                  "name": "fireboxFrontY",
+                  "ioValue": -312.5
+                },
+                {
+                  "name": "bottom",
+                  "ioValue": 110
+                },
+                {
+                  "name": "top",
+                  "ioValue": 434
+                },
+                {
+                  "name": "chamfer",
+                  "ioValue": 40
+                },
+                {
+                  "name": "windowWidth",
+                  "ioValue": 174
+                },
+                {
+                  "name": "windowBottom",
+                  "ioValue": 146
+                },
+                {
+                  "name": "windowTop",
+                  "ioValue": 380
+                },
+                {
+                  "name": "windowChamfer",
+                  "ioValue": 25
+                }
+              ],
+              "interpreterVersion": 1,
+              "code": "/**\n * HUUM HIVE Wood 17 firebox door: a steel plate with chamfered top corners\n * and a window opening, also chamfered at the top, that holds the glass.\n * Coordinates are real: x across the stove, z up, the door's back face sits\n * on the firebox front at fireboxFrontY and the door faces -Y.\n */\nfunction run(\n  fireboxFrontY: number = -312.5,\n  width: number = 270,\n  bottom: number = 110,\n  top: number = 434,\n  chamfer: number = 40,\n  windowWidth: number = 174,\n  windowBottom: number = 146,\n  windowTop: number = 380,\n  windowChamfer: number = 25,\n  thickness: number = 15,\n  color: string = \"#4A4C4F\",\n): Assembly {\n  // Rectangle with its two top corners chamfered, in (x, z)\n  const outline = (w: number, z0: number, z1: number, c: number) =>\n    replicad\n      .draw([-w / 2, z0])\n      .lineTo([w / 2, z0])\n      .lineTo([w / 2, z1 - c])\n      .lineTo([w / 2 - c, z1])\n      .lineTo([-w / 2 + c, z1])\n      .lineTo([-w / 2, z1 - c])\n      .close();\n  const plate = outline(width, bottom, top, chamfer).cut(\n    outline(windowWidth, windowBottom, windowTop, windowChamfer),\n  );\n  // The XZ plane extrudes toward -Y, out of the firebox front\n  const door = plate.sketchOnPlane(\"XZ\").extrude(thickness).translate(0, fireboxFrontY, 0);\n  return new Assembly({ geometry: door, color, tags: [\"steel\", \"door\"] });\n}\n",
+              "compiledCode": "\"use strict\";\n/**\n * HUUM HIVE Wood 17 firebox door: a steel plate with chamfered top corners\n * and a window opening, also chamfered at the top, that holds the glass.\n * Coordinates are real: x across the stove, z up, the door's back face sits\n * on the firebox front at fireboxFrontY and the door faces -Y.\n */\nfunction run(fireboxFrontY = -312.5, width = 270, bottom = 110, top = 434, chamfer = 40, windowWidth = 174, windowBottom = 146, windowTop = 380, windowChamfer = 25, thickness = 15, color = \"#4A4C4F\") {\n    // Rectangle with its two top corners chamfered, in (x, z)\n    const outline = (w, z0, z1, c) => replicad\n        .draw([-w / 2, z0])\n        .lineTo([w / 2, z0])\n        .lineTo([w / 2, z1 - c])\n        .lineTo([w / 2 - c, z1])\n        .lineTo([-w / 2 + c, z1])\n        .lineTo([-w / 2, z1 - c])\n        .close();\n    const plate = outline(width, bottom, top, chamfer).cut(outline(windowWidth, windowBottom, windowTop, windowChamfer));\n    // The XZ plane extrudes toward -Y, out of the firebox front\n    const door = plate.sketchOnPlane(\"XZ\").extrude(thickness).translate(0, fireboxFrontY, 0);\n    return new Assembly({ geometry: door, color, tags: [\"steel\", \"door\"] });\n}\n"
+            }
+          ],
+          "allConnectors": [
+            {
+              "ap2Name": "number or geometry",
+              "ap1ID": "id-240",
+              "ap2ID": "id-238"
+            }
+          ],
+          "fileTypeVersion": 1
+        },
+        {
+          "atomType": "Molecule",
+          "x": 0.3,
+          "y": 0.4,
+          "uniqueID": "id-257",
+          "name": "Door Glass",
+          "topLevel": false,
+          "allAtoms": [
+            {
+              "atomType": "Output",
+              "x": 1,
+              "y": 0.5,
+              "uniqueID": "id-259",
+              "ioValues": [
+                {
+                  "name": "number or geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                }
+              ]
+            },
+            {
+              "atomType": "Code",
+              "x": 0.3,
+              "y": 0.5,
+              "uniqueID": "id-261",
+              "ioValues": [
+                {
+                  "name": "width",
+                  "ioValue": 174
+                },
+                {
+                  "name": "thickness",
+                  "ioValue": 5,
+                  "currentEquation": "5"
+                },
+                {
+                  "name": "color",
+                  "ioValue": "#2B1A10",
+                  "currentEquation": "#2B1A10"
+                },
+                {
+                  "name": "fireboxFrontY",
+                  "ioValue": -312.5
+                },
+                {
+                  "name": "doorThickness",
+                  "ioValue": 15
+                },
+                {
+                  "name": "bottom",
+                  "ioValue": 146
+                },
+                {
+                  "name": "top",
+                  "ioValue": 380
+                },
+                {
+                  "name": "chamfer",
+                  "ioValue": 25
+                }
+              ],
+              "interpreterVersion": 1,
+              "code": "/**\n * HUUM HIVE Wood 17 door glass: a tempered pane that fills the door window,\n * sitting in the middle of the door's thickness. Matches the window outline\n * in the Door molecule. Z up, faces -Y.\n */\nfunction run(\n  fireboxFrontY: number = -312.5,\n  doorThickness: number = 15,\n  width: number = 174,\n  bottom: number = 146,\n  top: number = 380,\n  chamfer: number = 25,\n  thickness: number = 5,\n  color: string = \"#2B1A10\",\n): Assembly {\n  const pane = replicad\n    .draw([-width / 2, bottom])\n    .lineTo([width / 2, bottom])\n    .lineTo([width / 2, top - chamfer])\n    .lineTo([width / 2 - chamfer, top])\n    .lineTo([-width / 2 + chamfer, top])\n    .lineTo([-width / 2, top - chamfer])\n    .close();\n  const y = fireboxFrontY - (doorThickness - thickness) / 2;\n  const glass = pane.sketchOnPlane(\"XZ\").extrude(thickness).translate(0, y, 0);\n  return new Assembly({ geometry: glass, color, tags: [\"glass\"] });\n}\n",
+              "compiledCode": "\"use strict\";\n/**\n * HUUM HIVE Wood 17 door glass: a tempered pane that fills the door window,\n * sitting in the middle of the door's thickness. Matches the window outline\n * in the Door molecule. Z up, faces -Y.\n */\nfunction run(fireboxFrontY = -312.5, doorThickness = 15, width = 174, bottom = 146, top = 380, chamfer = 25, thickness = 5, color = \"#2B1A10\") {\n    const pane = replicad\n        .draw([-width / 2, bottom])\n        .lineTo([width / 2, bottom])\n        .lineTo([width / 2, top - chamfer])\n        .lineTo([width / 2 - chamfer, top])\n        .lineTo([-width / 2 + chamfer, top])\n        .lineTo([-width / 2, top - chamfer])\n        .close();\n    const y = fireboxFrontY - (doorThickness - thickness) / 2;\n    const glass = pane.sketchOnPlane(\"XZ\").extrude(thickness).translate(0, y, 0);\n    return new Assembly({ geometry: glass, color, tags: [\"glass\"] });\n}\n"
+            }
+          ],
+          "allConnectors": [
+            {
+              "ap2Name": "number or geometry",
+              "ap1ID": "id-261",
+              "ap2ID": "id-259"
+            }
+          ],
+          "fileTypeVersion": 1
+        },
+        {
+          "atomType": "Molecule",
+          "x": 0.3,
+          "y": 0.6,
+          "uniqueID": "id-275",
+          "name": "Latch Lever",
+          "topLevel": false,
+          "allAtoms": [
+            {
+              "atomType": "Output",
+              "x": 1,
+              "y": 0.5,
+              "uniqueID": "id-277",
+              "ioValues": [
+                {
+                  "name": "number or geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                }
+              ]
+            },
+            {
+              "atomType": "Rectangle",
+              "x": 0.2,
+              "y": 0.5,
+              "uniqueID": "id-279",
+              "ioValues": [
+                {
+                  "name": "x length",
+                  "ioValue": 80
+                },
+                {
+                  "name": "y length",
+                  "ioValue": 15
+                }
+              ]
+            },
+            {
+              "atomType": "Extrude",
+              "x": 0.4,
+              "y": 0.5,
+              "uniqueID": "id-283",
+              "ioValues": [
+                {
+                  "name": "geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                },
+                {
+                  "name": "height",
+                  "ioValue": 4
+                }
+              ]
+            },
+            {
+              "atomType": "Rotate",
+              "x": 0.5,
+              "y": 0.5,
+              "uniqueID": "id-287",
+              "ioValues": [
+                {
+                  "name": "geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                },
+                {
+                  "name": "x-axis degrees",
+                  "ioValue": 90
+                },
+                {
+                  "name": "y-axis degrees",
+                  "ioValue": 0
+                },
+                {
+                  "name": "z-axis degrees",
+                  "ioValue": 0
+                }
+              ]
+            },
+            {
+              "atomType": "Move",
+              "x": 0.7,
+              "y": 0.5,
+              "uniqueID": "id-293",
+              "ioValues": [
+                {
+                  "name": "geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                },
+                {
+                  "name": "xDist",
+                  "ioValue": -160
+                },
+                {
+                  "name": "yDist",
+                  "ioValue": -327.5
+                },
+                {
+                  "name": "zDist",
+                  "ioValue": 260
+                }
+              ]
+            },
+            {
+              "atomType": "Color",
+              "x": 0.8,
+              "y": 0.5,
+              "uniqueID": "id-299",
+              "ioValues": [
+                {
+                  "name": "geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                }
+              ],
+              "selectedColor": "Black"
+            }
+          ],
+          "allConnectors": [
+            {
+              "ap2Name": "geometry",
+              "ap1ID": "id-279",
+              "ap2ID": "id-283"
+            },
+            {
+              "ap2Name": "geometry",
+              "ap1ID": "id-283",
+              "ap2ID": "id-287"
+            },
+            {
+              "ap2Name": "geometry",
+              "ap1ID": "id-287",
+              "ap2ID": "id-293"
+            },
+            {
+              "ap2Name": "geometry",
+              "ap1ID": "id-293",
+              "ap2ID": "id-299"
+            },
+            {
+              "ap2Name": "number or geometry",
+              "ap1ID": "id-299",
+              "ap2ID": "id-277"
+            }
+          ],
+          "fileTypeVersion": 1
+        },
+        {
+          "atomType": "Molecule",
+          "x": 0.3,
+          "y": 0.8,
+          "uniqueID": "id-302",
+          "name": "Door Knob",
+          "topLevel": false,
+          "allAtoms": [
+            {
+              "atomType": "Output",
+              "x": 1,
+              "y": 0.5,
+              "uniqueID": "id-304",
+              "ioValues": [
+                {
+                  "name": "number or geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                }
+              ]
+            },
+            {
+              "atomType": "Circle",
+              "x": 0.2,
+              "y": 0.5,
+              "uniqueID": "id-306",
+              "ioValues": [
+                {
+                  "name": "diameter",
+                  "ioValue": 30
+                }
+              ]
+            },
+            {
+              "atomType": "Extrude",
+              "x": 0.4,
+              "y": 0.5,
+              "uniqueID": "id-309",
+              "ioValues": [
+                {
+                  "name": "geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                },
+                {
+                  "name": "height",
+                  "ioValue": 30
+                }
+              ]
+            },
+            {
+              "atomType": "Rotate",
+              "x": 0.5,
+              "y": 0.5,
+              "uniqueID": "id-313",
+              "ioValues": [
+                {
+                  "name": "geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                },
+                {
+                  "name": "x-axis degrees",
+                  "ioValue": 90
+                },
+                {
+                  "name": "y-axis degrees",
+                  "ioValue": 0
+                },
+                {
+                  "name": "z-axis degrees",
+                  "ioValue": 0
+                }
+              ]
+            },
+            {
+              "atomType": "Move",
+              "x": 0.7,
+              "y": 0.5,
+              "uniqueID": "id-319",
+              "ioValues": [
+                {
+                  "name": "geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                },
+                {
+                  "name": "xDist",
+                  "ioValue": -190
+                },
+                {
+                  "name": "yDist",
+                  "ioValue": -331.5
+                },
+                {
+                  "name": "zDist",
+                  "ioValue": 260
+                }
+              ]
+            },
+            {
+              "atomType": "Color",
+              "x": 0.8,
+              "y": 0.5,
+              "uniqueID": "id-325",
+              "ioValues": [
+                {
+                  "name": "geometry",
+                  "ioValue": "__GEOMETRY_INPUT__"
+                }
+              ],
+              "selectedColor": "Brown"
+            }
+          ],
+          "allConnectors": [
+            {
+              "ap2Name": "geometry",
+              "ap1ID": "id-306",
+              "ap2ID": "id-309"
+            },
+            {
+              "ap2Name": "geometry",
+              "ap1ID": "id-309",
+              "ap2ID": "id-313"
+            },
+            {
+              "ap2Name": "geometry",
+              "ap1ID": "id-313",
+              "ap2ID": "id-319"
+            },
+            {
+              "ap2Name": "geometry",
+              "ap1ID": "id-319",
+              "ap2ID": "id-325"
+            },
+            {
+              "ap2Name": "number or geometry",
+              "ap1ID": "id-325",
+              "ap2ID": "id-304"
+            }
+          ],
+          "fileTypeVersion": 1
+        },
+        {
+          "atomType": "Assembly",
+          "x": 0.6,
+          "y": 0.5,
+          "uniqueID": "id-328",
+          "ioValues": [
+            {
+              "name": "makeDisjoint",
+              "ioValue": false
+            },
+            {
+              "name": "Shape 1",
+              "ioValue": "__GEOMETRY_INPUT__"
+            },
+            {
+              "name": "Shape2",
+              "ioValue": "__GEOMETRY_INPUT__"
+            },
+            {
+              "name": "Shape3",
+              "ioValue": "__GEOMETRY_INPUT__"
+            },
+            {
+              "name": "Shape4",
+              "ioValue": "__GEOMETRY_INPUT__"
+            },
+            {
+              "name": "Shape5",
+              "ioValue": "__GEOMETRY_INPUT__"
+            }
+          ]
+        }
+      ],
+      "allConnectors": [
+        {
+          "ap2Name": "Shape 1",
+          "ap1ID": "id-236",
+          "ap2ID": "id-328"
+        },
+        {
+          "ap2Name": "Shape2",
+          "ap1ID": "id-257",
+          "ap2ID": "id-328"
+        },
+        {
+          "ap2Name": "Shape3",
+          "ap1ID": "id-275",
+          "ap2ID": "id-328"
+        },
+        {
+          "ap2Name": "Shape4",
+          "ap1ID": "id-302",
+          "ap2ID": "id-328"
+        },
+        {
+          "ap2Name": "number or geometry",
+          "ap1ID": "id-328",
+          "ap2ID": "id-234"
+        }
+      ],
+      "fileTypeVersion": 1
+    },
+    {
+      "atomType": "Move",
+      "x": 0.5,
+      "y": 0.7,
+      "uniqueID": "id-336",
+      "ioValues": [
+        {
+          "name": "geometry",
+          "ioValue": "__GEOMETRY_INPUT__"
+        },
+        {
+          "name": "xDist",
+          "ioValue": -260
+        },
+        {
+          "name": "yDist",
+          "ioValue": 0
+        },
+        {
+          "name": "zDist",
+          "ioValue": 0
+        }
+      ]
+    },
+    {
+      "atomType": "Assembly",
+      "x": 0.7,
+      "y": 0.5,
+      "uniqueID": "id-342",
+      "ioValues": [
+        {
+          "name": "makeDisjoint",
+          "ioValue": false
+        },
+        {
+          "name": "Shape 1",
+          "ioValue": "__GEOMETRY_INPUT__"
+        },
+        {
+          "name": "Shape2",
+          "ioValue": "__GEOMETRY_INPUT__"
+        },
+        {
+          "name": "Shape3",
+          "ioValue": "__GEOMETRY_INPUT__"
+        },
+        {
+          "name": "Shape4",
+          "ioValue": "__GEOMETRY_INPUT__"
+        },
+        {
+          "name": "Shape5",
+          "ioValue": "__GEOMETRY_INPUT__"
+        },
+        {
+          "name": "Shape6",
+          "ioValue": "__GEOMETRY_INPUT__"
+        },
+        {
+          "name": "Shape7",
+          "ioValue": "__GEOMETRY_INPUT__"
+        },
+        {
+          "name": "Shape8",
+          "ioValue": "__GEOMETRY_INPUT__"
+        }
+      ]
+    }
+  ],
+  "allConnectors": [
+    {
+      "ap2Name": "Shape 1",
+      "ap1ID": "id-101",
+      "ap2ID": "id-342"
+    },
+    {
+      "ap2Name": "Shape2",
+      "ap1ID": "id-136",
+      "ap2ID": "id-342"
+    },
+    {
+      "ap2Name": "Shape3",
+      "ap1ID": "id-159",
+      "ap2ID": "id-342"
+    },
+    {
+      "ap2Name": "geometry",
+      "ap1ID": "id-186",
+      "ap2ID": "id-336"
+    },
+    {
+      "ap2Name": "Shape6",
+      "ap1ID": "id-186",
+      "ap2ID": "id-342"
+    },
+    {
+      "ap2Name": "Shape4",
+      "ap1ID": "id-207",
+      "ap2ID": "id-342"
+    },
+    {
+      "ap2Name": "Shape5",
+      "ap1ID": "id-232",
+      "ap2ID": "id-342"
+    },
+    {
+      "ap2Name": "Shape7",
+      "ap1ID": "id-336",
+      "ap2ID": "id-342"
+    },
+    {
+      "ap2Name": "number or geometry",
+      "ap1ID": "id-342",
+      "ap2ID": "id-2"
+    }
+  ],
+  "unitsKey": "MM",
+  "fileTypeVersion": 1,
+  "filetypeVersion": 1
 }
